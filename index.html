@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SAP Transport ALOG Analyzer Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen font-sans">
+
+    <div class="container mx-auto px-4 py-8 max-w-7xl">
+        <!-- Header -->
+        <header class="mb-8 text-center bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h1 class="text-3xl font-extrabold text-blue-900 mb-2">SAP Transport Import Time Analyzer Pro</h1>
+            <p class="text-gray-500">Analyze real-time processing speeds, isolate duplicate loops, and manage queue wait/think time indicators.</p>
+        </header>
+
+        <!-- Drag & Drop Zone -->
+        <div id="drop-zone" class="border-4 border-dashed border-blue-200 bg-white hover:border-blue-400 transition-colors rounded-xl p-8 text-center cursor-pointer mb-8 shadow-sm">
+            <div class="flex flex-col items-center justify-center space-y-3">
+                <svg class="w-16 h-16 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                <p class="text-xl font-semibold text-gray-700">Drag & Drop SAP ALOG Files Here</p>
+                <p class="text-sm text-gray-400">or click to browse local storage files</p>
+                <input type="file" id="file-input" multiple class="hidden">
+            </div>
+            <div id="loaded-files-badge" class="mt-4 flex flex-wrap justify-center gap-2"></div>
+        </div>
+
+        <!-- Dashboard Analytics Row -->
+        <div id="charts-card" class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 hidden">
+            <!-- Graphical Chart Display Container -->
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 lg:col-span-2 flex flex-col items-center justify-center">
+                <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 self-start">Return Code (RC) Distribution</h3>
+                <div class="w-full flex items-center justify-around flex-wrap gap-4">
+                    <div id="chart-pie-holder" class="w-48 h-48"></div>
+                    <div id="chart-legend-holder" class="flex flex-col space-y-2 text-sm"></div>
+                </div>
+            </div>
+            
+            <!-- Interactive Wait Time Range Slider Card -->
+            <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">Cap Large Wait/Think Times</h3>
+                <p class="text-xs text-gray-400 mb-6">Gaps larger than this threshold will be capped at exactly 1 minute inside the final summary calculation.</p>
+                
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center text-sm font-semibold">
+                        <span class="text-gray-500">Threshold:</span>
+                        <span id="slider-value-label" class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs">30 mins</span>
+                    </div>
+                    <input type="range" id="wait-time-slider" min="1" max="60" value="30" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600">
+                    <div class="flex justify-between text-[10px] text-gray-400 font-mono">
+                        <span>1 min</span>
+                        <span>15m</span>
+                        <span>30m</span>
+                        <span>45m</span>
+                        <span>60 mins+</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filter Area Controls Menu -->
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-8 hidden flex flex-col space-y-4" id="filter-card">
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Start Timestamp</label>
+                    <input type="datetime-local" id="filter-start-date" class="w-full bg-gray-50 border border-gray-200 rounded p-2 text-sm focus:outline-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">End Timestamp</label>
+                    <input type="datetime-local" id="filter-end-date" class="w-full bg-gray-50 border border-gray-200 rounded p-2 text-sm focus:outline-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Transport ID</label>
+                    <input type="text" id="filter-tr" placeholder="Filter TR ID" class="w-full bg-gray-50 border border-gray-200 rounded p-2 text-sm focus:outline-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Max RC Code</label>
+                    <select id="filter-rc" class="w-full bg-gray-50 border border-gray-200 rounded p-2 text-sm focus:outline-blue-500">
+                        <option value="ALL">All Return Codes</option>
+                        <option value="0000">0000 (Success)</option>
+                        <option value="0004">0004 (Warning)</option>
+                        <option value="0008">0008 (Error)</option>
+                        <option value="0012">0012 (Critical Error)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">TR Owner</label>
+                    <input type="text" id="filter-owner" placeholder="Filter Owner" class="w-full bg-gray-50 border border-gray-200 rounded p-2 text-sm focus:outline-blue-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Structural Sequence</label>
+                    <select id="filter-repeat" class="w-full bg-gray-50 border border-gray-200 rounded p-2 text-sm focus:outline-blue-500">
+                        <option value="ALL">All Records</option>
+                        <option value="REPEATED">Repeated/Duplicate Transports Only</option>
+                        <option value="SINGLE">Single Unique Passes Only</option>
+                        <option value="LAST_INSTANCE">Last Instance of Repeat Transports Only</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex justify-end">
+                <button id="btn-export" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-4 py-2 rounded flex items-center shadow transition-colors">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    Export Filtered View to Excel (.XLS)
+                </button>
+            </div>
+        </div>
+
+        <!-- Main Workspace Table Display Container -->
+        <main class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hidden" id="report-card">
+            <div class="overflow-x-auto max-h-[500px]">
+                <table id="main-data-table" class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-800 text-white text-xs font-semibold uppercase tracking-wider sticky top-0 z-10">
+                            <th class="p-4 w-16">#</th>
+                            <th class="p-4">Transport Request</th>
+                            <th class="p-4">Owner</th>
+                            <th class="p-4">Max RC</th>
+                            <th class="p-4">Import Start Time</th>
+                            <th class="p-4">Import End Time</th>
+                            <th class="p-4 text-right">Active Execution Duration</th>
+                            <th class="p-4 text-right">Think/Wait Time Before Run</th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body" class="divide-y divide-gray-100 text-sm">
+                        <!-- Filled dynamically via JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Footer Aggregated Summary Metrics Bar -->
+            <footer class="bg-blue-900 text-white p-6 border-t border-blue-950 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                <div>
+                    <h3 class="text-sm uppercase tracking-widest text-blue-200 font-bold mb-1">Aggregated Workspace Summary</h3>
+                    <p class="text-xs text-blue-100">Evaluated values filter out administrative buffer selection records automatically[cite: 2].</p>
+                </div>
+                <div class="md:col-span-2 grid grid-cols-3 gap-4 text-center md:text-right">
+                    <div>
+                        <span class="block text-xs text-blue-200 font-medium">Imports Rendered</span>
+                        <span id="summary-count" class="text-2xl md:text-3xl font-black tracking-tight">0</span>
+                    </div>
+                    <div>
+                        <span class="block text-xs text-blue-200 font-medium">Active Processing Time</span>
+                        <span id="summary-duration" class="text-2xl md:text-3xl font-black tracking-tight">0m</span>
+                    </div>
+                    <div>
+                        <span class="block text-xs text-blue-200 font-medium">Cumulative Wait Time</span>
+                        <span id="summary-wait" class="text-2xl md:text-3xl font-black tracking-tight">0m</span>
+                    </div>
+                </div>
+            </footer>
+        </main>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const filterCard = document.getElementById('filter-card');
+        const chartsCard = document.getElementById('charts-card');
+        const reportCard = document.getElementById('report-card');
+        const tableBody = document.getElementById('table-body');
+        const loadedFilesBadge = document.getElementById('loaded-files-badge');
+        const btnExport = document.getElementById('btn-export');
+        const waitSlider = document.getElementById('wait-time-slider');
+        const sliderLabel = document.getElementById('slider-value-label');
+
+        let importEventsList = [];
+        let globalTrCounts = {}; 
+        let filteredRenderedData = []; 
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+        
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('border-blue-500', 'bg-blue-50'); });
+        dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('border-blue-500', 'bg-blue-50'); });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-blue-500', 'bg-blue-50');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        ['filter-start-date', 'filter-end-date', 'filter-tr', 'filter-rc', 'filter-owner', 'filter-repeat'].forEach(id => {
+            document.getElementById(id).addEventListener('input', updateTableReport);
+        });
+
+        waitSlider.addEventListener('input', function(e) {
+            sliderLabel.textContent = `${e.target.value} mins`;
+            updateTableReport();
+        });
+
+        btnExport.addEventListener('click', exportTableToExcel);
+
+        function handleFiles(files) {
+            if (!files.length) return;
+            loadedFilesBadge.innerHTML = '';
+            importEventsList = [];
+            globalTrCounts = {};
+
+            let filesRead = 0;
+            const sortedFiles = Array.from(files).sort((a, b) => a.name.localeCompare(b.name));
+
+            sortedFiles.forEach(file => {
+                const badge = document.createElement('span');
+                badge.className = "bg-blue-100 text-blue-800 text-xs font-semibold px-2.5 py-0.5 rounded";
+                badge.textContent = file.name;
+                loadedFilesBadge.appendChild(badge);
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    parseAlogContent(e.target.result);
+                    filesRead++;
+                    if (filesRead === sortedFiles.length) {
+                        processChronologicalSequencing();
+                        filterCard.classList.remove('hidden');
+                        chartsCard.classList.remove('hidden');
+                        reportCard.classList.remove('hidden');
+                        updateTableReport();
+                    }
+                };
+                reader.readAsText(file);
+            });
+        }
+
+        function parseAlogContent(text) {
+            const lines = text.split('\n');
+            let activeImportMap = {};
+
+            lines.forEach(line => {
+                if (!line.trim() || line.startsWith('#')) return;
+
+                const tokens = line.trim().split(/\s+/);
+                if (tokens.length < 5) return;
+
+                const trId = tokens[0];
+                if (trId === 'ALL') return; 
+
+                const step = tokens[2];          
+                const rcCode = tokens[3];        
+                const timestampStr = tokens[4];  
+                const owner = tokens[5] || 'UNKNOWN';
+
+                if (!/^\d{14}$/.test(timestampStr)) return; 
+                if (step.toLowerCase() === 'u') return; // Bypass buffer queue additions[cite: 2]
+
+                const year = timestampStr.substring(0, 4);
+                const month = timestampStr.substring(4, 6);
+                const day = timestampStr.substring(6, 8);
+                const hour = timestampStr.substring(8, 10);
+                const min = timestampStr.substring(10, 12);
+                const sec = timestampStr.substring(12, 14);
+                const entryDate = new Date(`${year}-${month}-${day}T${hour}:${min}:${sec}`);
+
+                // Step 'L' maps a clean starting run boundary[cite: 7]
+                if (step === 'L') {
+                    const newImport = {
+                        trId: trId,
+                        owner: owner,
+                        maxRc: rcCode,
+                        startTime: entryDate,
+                        endTime: entryDate,
+                        waitTimeSec: 0,
+                        isCappedWait: false,
+                        calculatedWaitSec: 0
+                    };
+                    importEventsList.push(newImport);
+                    activeImportMap[trId] = newImport; 
+                    return;
+                }
+
+                let targetImport = activeImportMap[trId];
+                if (!targetImport) {
+                    targetImport = {
+                        trId: trId,
+                        owner: owner,
+                        maxRc: rcCode,
+                        startTime: entryDate,
+                        endTime: entryDate,
+                        waitTimeSec: 0,
+                        isCappedWait: false,
+                        calculatedWaitSec: 0
+                    };
+                    importEventsList.push(targetImport);
+                    activeImportMap[trId] = targetImport;
+                }
+
+                if (entryDate < targetImport.startTime) targetImport.startTime = entryDate;
+                if (entryDate > targetImport.endTime) targetImport.endTime = entryDate;
+
+                if (owner !== 'TMSADM' && owner !== 'DDIC' && owner !== 'UNKNOWN') {
+                    targetImport.owner = owner;
+                }
+
+                if (parseInt(rcCode) > parseInt(targetImport.maxRc)) {
+                    targetImport.maxRc = rcCode;
+                }
+            });
+        }
+
+        function processChronologicalSequencing() {
+            importEventsList.sort((a, b) => a.startTime - b.startTime);
+
+            globalTrCounts = {};
+            importEventsList.forEach(ev => {
+                globalTrCounts[ev.trId] = (globalTrCounts[ev.trId] || 0) + 1;
+            });
+
+            for (let i = 1; i < importEventsList.length; i++) {
+                const previousRun = importEventsList[i - 1];
+                const currentRun = importEventsList[i];
+
+                if (currentRun.startTime >= previousRun.endTime) {
+                    currentRun.waitTimeSec = Math.floor((currentRun.startTime - previousRun.endTime) / 1000);
+                }
+            }
+        }
+
+        function updateTableReport() {
+            const startVal = document.getElementById('filter-start-date').value;
+            const endVal = document.getElementById('filter-end-date').value;
+            const trFilter = document.getElementById('filter-tr').value.toUpperCase().trim();
+            const rcFilter = document.getElementById('filter-rc').value;
+            const ownerFilter = document.getElementById('filter-owner').value.toUpperCase().trim();
+            const repeatFilter = document.getElementById('filter-repeat').value;
+            const sliderMins = parseInt(waitSlider.value);
+
+            const startLimit = startVal ? new Date(startVal) : null;
+            const endLimit = endVal ? new Date(endVal) : null;
+
+            tableBody.innerHTML = '';
+            filteredRenderedData = []; 
+            
+            let matchCount = 0;
+            let combinedDurationSec = 0;
+            let combinedWaitSec = 0;
+
+            let rcStats = { "0000": 0, "0004": 0, "0008": 0, "0012": 0 };
+
+            let lastInstanceTracker = {};
+            importEventsList.forEach((tr, index) => {
+                if (startLimit && tr.startTime < startLimit) return;
+                if (endLimit && tr.startTime > endLimit) return;
+                if (trFilter && !tr.trId.toUpperCase().includes(trFilter)) return;
+                if (rcFilter !== 'ALL' && tr.maxRc !== rcFilter) return;
+                if (ownerFilter && !tr.owner.toUpperCase().includes(ownerFilter)) return;
+
+                lastInstanceTracker[tr.trId] = index;
+            });
+
+            importEventsList.forEach((tr, index) => {
+                const elapsedSeconds = Math.max(0, Math.floor((tr.endTime - tr.startTime) / 1000));
+                const totalTimesSeen = globalTrCounts[tr.trId] || 1;
+
+                if (startLimit && tr.startTime < startLimit) return;
+                if (endLimit && tr.startTime > endLimit) return;
+                if (trFilter && !tr.trId.toUpperCase().includes(trFilter)) return;
+                if (rcFilter !== 'ALL' && tr.maxRc !== rcFilter) return;
+                if (ownerFilter && !tr.owner.toUpperCase().includes(ownerFilter)) return;
+
+                if (repeatFilter === 'REPEATED' && totalTimesSeen <= 1) return;
+                if (repeatFilter === 'SINGLE' && totalTimesSeen > 1) return;
+                if (repeatFilter === 'LAST_INSTANCE' && lastInstanceTracker[tr.trId] !== index) return;
+
+                matchCount++;
+                combinedDurationSec += elapsedSeconds;
+
+                const limitSeconds = sliderMins * 60;
+                if (tr.waitTimeSec > limitSeconds) {
+                    tr.isCappedWait = true;
+                    tr.calculatedWaitSec = 60; 
+                } else {
+                    tr.isCappedWait = false;
+                    tr.calculatedWaitSec = tr.waitTimeSec;
+                }
+                combinedWaitSec += tr.calculatedWaitSec;
+
+                // Map safely to the 4 standard SAP Return Codes exclusively
+                let normalizedRc = tr.maxRc;
+                if (!rcStats.hasOwnProperty(normalizedRc)) {
+                    normalizedRc = "0000"; 
+                }
+                rcStats[normalizedRc]++;
+
+                filteredRenderedData.push({
+                    sNo: matchCount,
+                    trId: tr.trId,
+                    owner: tr.owner,
+                    maxRc: tr.maxRc,
+                    startTime: formatDate(tr.startTime),
+                    endTime: formatDate(tr.endTime),
+                    duration: formatRowDuration(elapsedSeconds),
+                    waitStr: tr.waitTimeSec > 0 ? (tr.isCappedWait ? `1m (Capped)` : formatRowDuration(tr.waitTimeSec)) : '-'
+                });
+
+                let repeatBadge = '';
+                if (totalTimesSeen > 1) {
+                    repeatBadge = `<span class="ml-2 bg-purple-100 text-purple-800 text-[10px] font-bold px-2 py-0.5 rounded border border-purple-200">Repeat (${totalTimesSeen}x)</span>`;
+                }
+
+                const row = document.createElement('tr');
+                row.className = "hover:bg-gray-50 transition-colors";
+                row.innerHTML = `
+                    <td class="p-4 font-mono text-gray-400 text-xs">${matchCount}</td>
+                    <td class="p-4 font-mono font-bold text-gray-900 flex items-center">${tr.trId} ${repeatBadge}</td>
+                    <td class="p-4 text-gray-600">${tr.owner}</td>
+                    <td class="p-4">
+                        <span class="px-2 py-1 rounded text-xs font-bold ${getRcBadgeStyle(tr.maxRc)}">
+                            RC ${tr.maxRc}
+                        </span>
+                    </td>
+                    <td class="p-4 text-gray-500 font-mono text-xs">${formatDate(tr.startTime)}</td>
+                    <td class="p-4 text-gray-500 font-mono text-xs">${formatDate(tr.endTime)}</td>
+                    <td class="p-4 text-right font-semibold text-gray-700 font-mono">${formatRowDuration(elapsedSeconds)}</td>
+                    <td class="p-4 text-right font-mono text-xs ${tr.isCappedWait ? 'text-amber-600 font-bold' : 'text-amber-800'}">
+                        ${tr.waitTimeSec > 0 ? (tr.isCappedWait ? `1m <span class="text-[10px] block text-gray-400 font-normal">(Capped from ${formatRowDuration(tr.waitTimeSec)})</span>` : formatRowDuration(tr.waitTimeSec)) : '-'}
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+
+            document.getElementById('summary-count').textContent = matchCount.toLocaleString();
+            document.getElementById('summary-duration').textContent = formatOverheadString(combinedDurationSec);
+            document.getElementById('summary-wait').textContent = formatOverheadString(combinedWaitSec);
+
+            renderHighLevelChart(rcStats);
+        }
+
+        function getRcBadgeStyle(rc) {
+            const num = parseInt(rc);
+            if (num === 0) return "bg-green-100 text-green-800";
+            if (num <= 4) return "bg-yellow-100 text-yellow-800";
+            if (num <= 8) return "bg-orange-100 text-orange-800";
+            return "bg-red-100 text-red-800";
+        }
+
+        function formatDate(d) {
+            return d.getFullYear() + '-' + 
+                String(d.getMonth() + 1).padStart(2, '0') + '-' + 
+                String(d.getDate()).padStart(2, '0') + ' ' + 
+                String(d.getHours()).padStart(2, '0') + ':' + 
+                String(d.getMinutes()).padStart(2, '0') + ':' + 
+                String(d.getSeconds()).padStart(2, '0');
+        }
+
+        function formatRowDuration(totalSeconds) {
+            if (totalSeconds < 60) return `${totalSeconds}s`; 
+            const minutes = Math.floor(totalSeconds / 60);
+            const hours = Math.floor(minutes / 60);
+            const remainderMin = minutes % 60;
+            return hours > 0 ? `${hours}h ${remainderMin}m` : `${minutes}m`;
+        }
+
+        function formatOverheadString(totalSeconds) {
+            if (totalSeconds < 60) return `${totalSeconds}s`;
+            const totalMinutes = Math.floor(totalSeconds / 60);
+            const totalHours = Math.floor(totalMinutes / 60);
+            const remainderMin = totalMinutes % 60;
+
+            if (totalHours < 24) {
+                return `${totalHours}h ${remainderMin}m`;
+            } else {
+                const days = Math.floor(totalHours / 24);
+                const remainderHours = totalHours % 24;
+                return `${days}d ${remainderHours}h ${remainderMin}m`;
+            }
+        }
+
+        function renderHighLevelChart(stats) {
+            const holder = document.getElementById('chart-pie-holder');
+            const legendHolder = document.getElementById('chart-legend-holder');
+            holder.innerHTML = '';
+            legendHolder.innerHTML = '';
+
+            const colors = { "0000": "#22c55e", "0004": "#eab308", "0008": "#f97316", "0012": "#ef4444" };
+            const total = Object.values(stats).reduce((a, b) => a + b, 0);
+
+            if (total === 0) {
+                holder.innerHTML = `<div class="text-gray-300 text-sm text-center py-16">No Filter Data Available</div>`;
+                return;
+            }
+
+            let svgHtml = `<svg viewBox="0 0 42 42" class="w-full h-full transform -rotate-90">`;
+            let accumulatedPercent = 0;
+
+            Object.entries(stats).forEach(([rc, count]) => {
+                if (count === 0) return;
+                const percent = (count / total) * 100;
+                
+                const strokeDashArray = `${percent} ${100 - percent}`;
+                const strokeDashOffset = 100 - accumulatedPercent + 25; 
+
+                svgHtml += `<circle cx="21" cy="21" r="15.915" fill="transparent" stroke="${colors[rc]}" stroke-width="4.2" stroke-dasharray="${strokeDashArray}" stroke-dashoffset="${strokeDashOffset}"></circle>`;
+                accumulatedPercent += percent;
+
+                const legendRow = document.createElement('div');
+                legendRow.className = "flex items-center space-x-2";
+                legendRow.innerHTML = `<span class="w-3 h-3 rounded-full inline-block" style="background-color:${colors[rc]}"></span>
+                                       <span class="font-bold text-gray-700 font-mono">RC ${rc}:</span> 
+                                       <span class="text-gray-500">${count} (${percent.toFixed(1)}%)</span>`;
+                legendHolder.appendChild(legendRow);
+            });
+
+            svgHtml += `</svg>`;
+            holder.innerHTML = svgHtml;
+        }
+
+        function exportTableToExcel() {
+            if (!filteredRenderedData.length) {
+                alert("No data available in the current view to export.");
+                return;
+            }
+
+            let excelTemplate = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Filtered SAP Report</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--><meta charset="UTF-8"></head><body>`;
+            excelTemplate += `<table border="1"><thead><tr style="background-color:#1f2937; color:#ffffff; font-weight:bold;">`;
+            excelTemplate += `<th>#</th><th>Transport Request</th><th>Owner</th><th>Max RC</th><th>Import Start Time</th><th>Import End Time</th><th>Active Execution Duration</th><th>Think/Wait Time Before Run</th>`;
+            excelTemplate += `</tr></thead><tbody>`;
+
+            filteredRenderedData.forEach(row => {
+                excelTemplate += `<tr>`;
+                excelTemplate += `<td>${row.sNo}</td>`;
+                excelTemplate += `<td style="font-family:monospace; font-weight:bold;">${row.trId}</td>`;
+                excelTemplate += `<td>${row.owner}</td>`;
+                excelTemplate += `<td style="text-align:center;">RC ${row.maxRc}</td>`;
+                excelTemplate += `<td>${row.startTime}</td>`;
+                excelTemplate += `<td>${row.endTime}</td>`;
+                excelTemplate += `<td style="text-align:right;">${row.duration}</td>`;
+                excelTemplate += `<td style="text-align:right;">${row.waitStr}</td>`;
+                excelTemplate += `</tr>`;
+            });
+
+            excelTemplate += `</tbody></table></body></html>`;
+
+            const blob = new Blob([excelTemplate], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', `Filtered_SAP_Analysis_${new Date().toISOString().substring(0,10)}.xls`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
