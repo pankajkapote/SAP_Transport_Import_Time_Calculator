@@ -148,7 +148,7 @@
             <footer class="bg-blue-900 text-white p-6 border-t border-blue-950 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
                 <div>
                     <h3 class="text-sm uppercase tracking-widest text-blue-200 font-bold mb-1">Aggregated Workspace Summary</h3>
-                    <p class="text-xs text-blue-100">Evaluated values filter out administrative buffer selection records automatically[cite: 2].</p>
+                    <p class="text-xs text-blue-100">Evaluated values filter out administrative buffer selection records automatically.</p>
                 </div>
                 <div class="md:col-span-2 grid grid-cols-3 gap-4 text-center md:text-right">
                     <div>
@@ -184,10 +184,11 @@
         const waitSlider = document.getElementById('wait-time-slider');
         const sliderLabel = document.getElementById('slider-value-label');
 
+        let rawAlogTexts = [];
+        let rawExclusionText = "";
         let importEventsList = [];
         let globalTrCounts = {}; 
         let filteredRenderedData = []; 
-        let customExclusionSet = new Set();
 
         dropZone.addEventListener('click', () => fileInput.click());
         fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
@@ -200,7 +201,6 @@
             handleFiles(e.dataTransfer.files);
         });
 
-        // Exclusion file handlers
         excludeZone.addEventListener('click', () => excludeFileInput.click());
         excludeFileInput.addEventListener('change', (e) => handleExclusionFile(e.target.files[0]));
 
@@ -227,16 +227,10 @@
             if (!file) return;
             const reader = new FileReader();
             reader.onload = function(e) {
-                const text = e.target.result;
-                // Parse text/csv/xls content line by line and extract TR ID patterns (e.g. S4BK900737)
-                const matches = text.match(/\b[A-Z0-9]{10}\b/gi);
-                customExclusionSet.clear();
-                if (matches) {
-                    matches.forEach(tr => customExclusionSet.add(tr.toUpperCase().trim()));
+                rawExclusionText = e.target.result;
+                if (rawAlogTexts.length > 0) {
+                    processFilesOnServer();
                 }
-                excludedCountBadge.textContent = `${customExclusionSet.size} TR(s) in exclusion list`;
-                excludedCountBadge.classList.remove('hidden');
-                updateTableReport();
             };
             reader.readAsText(file);
         }
@@ -244,8 +238,7 @@
         function handleFiles(files) {
             if (!files.length) return;
             loadedFilesBadge.innerHTML = '';
-            importEventsList = [];
-            globalTrCounts = {};
+            rawAlogTexts = [];
 
             let filesRead = 0;
             const sortedFiles = Array.from(files).sort((a, b) => a.name.localeCompare(b.name));
@@ -258,133 +251,57 @@
 
                 const reader = new FileReader();
                 reader.onload = function(e) {
-                    parseAlogContent(e.target.result);
+                    rawAlogTexts.push(e.target.result);
                     filesRead++;
                     if (filesRead === sortedFiles.length) {
-                        processChronologicalSequencing();
-                        filterCard.classList.remove('hidden');
-                        chartsCard.classList.remove('hidden');
-                        reportCard.classList.remove('hidden');
-                        updateTableReport();
+                        processFilesOnServer();
                     }
                 };
                 reader.readAsText(file);
             });
         }
 
-        function parseAlogContent(text) {
-            const lines = text.split('\n');
-            let activeImportMap = {};
+        // --- STEP 2: SECURE API CALL TO VERCEL BACKEND ---
+        async function processFilesOnServer() {
+            try {
+                const response = await fetch('/api/parse-alog', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        alogContents: rawAlogTexts,
+                        exclusionListText: rawExclusionText
+                    })
+                });
 
-            lines.forEach(line => {
-                if (!line.trim() || line.startsWith('#')) return;
+                const result = await response.json();
 
-                const tokens = line.trim().split(/\s+/);
-                if (tokens.length < 5) return;
+                if (result.success) {
+                    // Convert JSON string dates back to JS Date objects for rendering
+                    importEventsList = result.data.map(item => ({
+                        ...item,
+                        startTime: new Date(item.startTime),
+                        endTime: new Date(item.endTime)
+                    }));
 
-                const trId = tokens[0];
-                if (trId === 'ALL') return; 
+                    globalTrCounts = {};
+                    importEventsList.forEach(ev => {
+                        globalTrCounts[ev.trId] = (globalTrCounts[ev.trId] || 0) + 1;
+                    });
 
-                const step = tokens[2];          
-                const rcCode = tokens[3];        
-                const timestampStr = tokens[4];  
-                const owner = tokens[5] || 'UNKNOWN';
+                    if (result.totalExcluded > 0) {
+                        excludedCountBadge.textContent = `${result.totalExcluded} TR(s) excluded`;
+                        excludedCountBadge.classList.remove('hidden');
+                    }
 
-                if (!/^\d{14}$/.test(timestampStr)) return; 
-                
-                // Exclude queue additions ('u'), released/export ('e'), and skipped/was already successful ('!')
-                const lowerStep = step.toLowerCase();
-                if (lowerStep === 'u' || lowerStep === 'e' || step === '!') return;
-
-                const year = timestampStr.substring(0, 4);
-                const month = timestampStr.substring(4, 6);
-                const day = timestampStr.substring(6, 8);
-                const hour = timestampStr.substring(8, 10);
-                const min = timestampStr.substring(10, 12);
-                const sec = timestampStr.substring(12, 14);
-                const entryDate = new Date(`${year}-${month}-${day}T${hour}:${min}:${sec}`);
-
-                // Step 'L' maps a clean starting run boundary[cite: 7]
-                if (step === 'L') {
-                    const newImport = {
-                        trId: trId,
-                        owner: owner,
-                        maxRc: rcCode,
-                        startTime: entryDate,
-                        endTime: entryDate,
-                        waitTimeSec: 0,
-                        isCappedWait: false,
-                        calculatedWaitSec: 0
-                    };
-                    importEventsList.push(newImport);
-                    activeImportMap[trId] = newImport; 
-                    return;
-                }
-
-                let targetImport = activeImportMap[trId];
-                if (!targetImport) {
-                    targetImport = {
-                        trId: trId,
-                        owner: owner,
-                        maxRc: rcCode,
-                        startTime: entryDate,
-                        endTime: entryDate,
-                        waitTimeSec: 0,
-                        isCappedWait: false,
-                        calculatedWaitSec: 0
-                    };
-                    importEventsList.push(targetImport);
-                    activeImportMap[trId] = targetImport;
-                }
-
-                if (entryDate < targetImport.startTime) targetImport.startTime = entryDate;
-                if (entryDate > targetImport.endTime) targetImport.endTime = entryDate;
-
-                if (owner !== 'TMSADM' && owner !== 'DDIC' && owner !== 'UNKNOWN') {
-                    targetImport.owner = owner;
-                }
-
-                if (parseInt(rcCode) > parseInt(targetImport.maxRc)) {
-                    targetImport.maxRc = rcCode;
-                }
-            });
-        }
-
-        function processChronologicalSequencing() {
-            // Fix duration mismatches: ensure endTime is never earlier than startTime
-            importEventsList.forEach(tr => {
-                if (tr.endTime < tr.startTime) {
-                    tr.endTime = new Date(tr.startTime.getTime());
-                }
-            });
-
-            // Sort chronologically by Start Time
-            importEventsList.sort((a, b) => a.startTime - b.startTime);
-
-            globalTrCounts = {};
-            importEventsList.forEach(ev => {
-                globalTrCounts[ev.trId] = (globalTrCounts[ev.trId] || 0) + 1;
-            });
-
-            // Calculate Think/Wait time using maximum previous end time to prevent overlap mismatch
-            let maxPreviousEndTime = null;
-
-            for (let i = 0; i < importEventsList.length; i++) {
-                const currentRun = importEventsList[i];
-
-                if (i === 0 || !maxPreviousEndTime) {
-                    currentRun.waitTimeSec = 0;
-                    maxPreviousEndTime = currentRun.endTime;
+                    filterCard.classList.remove('hidden');
+                    chartsCard.classList.remove('hidden');
+                    reportCard.classList.remove('hidden');
+                    updateTableReport();
                 } else {
-                    if (currentRun.startTime >= maxPreviousEndTime) {
-                        currentRun.waitTimeSec = Math.floor((currentRun.startTime - maxPreviousEndTime) / 1000);
-                    } else {
-                        currentRun.waitTimeSec = 0;
-                    }
-                    if (currentRun.endTime > maxPreviousEndTime) {
-                        maxPreviousEndTime = currentRun.endTime;
-                    }
+                    alert("Error parsing logs: " + (result.error || "Unknown error"));
                 }
+            } catch (err) {
+                alert("Failed to connect to backend service.");
             }
         }
 
@@ -411,7 +328,6 @@
 
             let lastInstanceTracker = {};
             importEventsList.forEach((tr, index) => {
-                if (customExclusionSet.has(tr.trId.toUpperCase())) return; // Exclude user-blacklisted TRs
                 if (startLimit && tr.startTime < startLimit) return;
                 if (endLimit && tr.startTime > endLimit) return;
                 if (trFilter && !tr.trId.toUpperCase().includes(trFilter)) return;
@@ -422,8 +338,6 @@
             });
 
             importEventsList.forEach((tr, index) => {
-                if (customExclusionSet.has(tr.trId.toUpperCase())) return; // Exclude user-blacklisted TRs
-
                 const elapsedSeconds = Math.max(0, Math.floor((tr.endTime - tr.startTime) / 1000));
                 const totalTimesSeen = globalTrCounts[tr.trId] || 1;
 
@@ -450,7 +364,6 @@
                 }
                 combinedWaitSec += tr.calculatedWaitSec;
 
-                // Map safely to standard SAP Return Codes
                 let normalizedRc = tr.maxRc;
                 if (!rcStats.hasOwnProperty(normalizedRc)) {
                     normalizedRc = "0000"; 
